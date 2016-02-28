@@ -94,8 +94,17 @@ var registerIntentHandlers = function (intentHandlers, skillContext) {
     intentHandlers.AddScoreIntent = function (intent, session, response) {
         //give a player points, ask additional question if slot values are missing.
         var playerName = textHelper.getPlayerName(intent.slots.PlayerName.value),
-            score = intent.slots.ScoreNumber,
+            score,
             scoreValue;
+            
+        // if(isNaN(intent.slots.ScoreNumber.value)){
+        //     score = intent.slots.negScoreNumber;
+        // }
+        // else if(intent.slots.negScoreNumber!=null){
+        //     score = intent.slots.negScoreNumber;
+        // }
+
+
         if (!playerName) {
             response.ask('sorry, I did not hear the clothing name, please say that again', 'Please say the clothing name again');
             return;
@@ -171,6 +180,56 @@ var registerIntentHandlers = function (intentHandlers, skillContext) {
             currentGame.save(function () {
                 response.tell(speechOutput);
             });
+        });
+    };
+
+    //FILLED WITH TellScoresIntent 
+    intentHandlers.TellOutfitIntent = function (intent, session, response) {
+        storage.loadGame(session, function (currentGame) {
+            var QArticles = [],
+                continueSession,
+                speechOutput = '',
+                outfit = '',
+                _actualTemp = 63;
+            if (currentGame.data.players.length === 0) {
+                response.tell('There are no articles of clothing in your Wardrobe');
+                return;
+            }
+            /*
+            currentGame.data.players.forEach(function (player) {
+                sortedPlayerScores.push({
+                    scoremax: currentGame.data.max[player],
+                    score: currentGame.data.scores[player],
+                    player: player
+                });
+            });
+            sortedPlayerScores.sort(function (p1, p2) {
+                return p2.score - p1.score;
+            });
+*/
+
+            currentGame.data.players.forEach(function (article, index) {
+                if (currentGame.data.scores[article]<=_actualTemp && currentGame.data.max[article]>=_actualTemp){
+                    QArticles.push(article);
+                    //console.log(article);
+                }
+                else{
+                    //console.log('false');
+                }
+            });
+
+            var rand_i = Math.floor(Math.random() * QArticles.length);
+
+            var _art = QArticles[rand_i];
+            var _min = currentGame.data.scores[_art];
+            var _max = currentGame.data.max[_art];
+
+            speechOutput += 'You should probably wear ' + _art + ' because the temperature is between ';
+            speechOutput += _min + ' and ' + _max;
+
+            outfit = _art + '\n' + _actualTemp;
+         
+            response.tellWithCard(speechOutput, "WEAR THIS!", outfit);
         });
     };
 
