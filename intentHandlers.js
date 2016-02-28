@@ -285,19 +285,22 @@ var registerIntentHandlers = function (intentHandlers, skillContext) {
                 if (_art != 'pants' || _art != 'shorts' || _art != 'underwear'){
                     speechOutput += 'a ';
                 }
-                speechOutput += _art + ' because the temperature is ' + _actualTemp;
+                speechOutput += _art + ' because the temperature is ' + _actualTemp + ' degrees';
                 outfit = 'Wear: ' + _art + '\n Current Temp: ' + _actualTemp + ' deg F \n';
 
                 if (_art == 'cardigan'){
                     speechOutput+=' and it\'s in style!';
                 }
+                if (_art == 'underwear'){
+                    speechOutput += ' wellll. I shouldn\'t have to tell you to wear that; ';
+                }
                 if (_precipProb>.5){
-                    speechOutput += ' ; There\'s a high chance of rain. You may want to bring an umbrella.';
-                    outfit += '\n Chance of Rain: '+_precipProb+' -Bring umbrella';
+                    speechOutput += ' There\'s a high chance of rain. You may want to bring an umbrella.';
+                    outfit += '\n Chance of Rain: '+(_precipProb*100)+'%\t -Bring umbrella';
                 }
                 if (_cloudCover<.2){
-                    speechOutput += 'Clear skies! Wear sunglasses!';
-                    outfit += '\n Cloud Cover: '+_cloudCover+' -Take sunglasses';
+                    speechOutput += ' Clear skies! Wear sunglasses!';
+                    outfit += '\n Cloud Cover: '+(_cloudCover*100)+'%\t -Take sunglasses';
                 }
 
                 response.tellWithCard(speechOutput, 'WEAR THIS!', outfit);
