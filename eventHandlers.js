@@ -36,7 +36,7 @@ var registerEventHandlers = function (eventHandlers, skillContext) {
                 
                 reprompt = textHelper.completeHelp;
             } else {
-                speechOutput += 'Fashion Buddy, What can I do for you?';
+                speechOutput += 'Fashion buddy. What can I do for you?';
                 reprompt = textHelper.nextHelp;
             }
             response.ask(speechOutput, reprompt);

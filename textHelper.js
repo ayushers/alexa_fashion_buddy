@@ -19,7 +19,9 @@ var textHelper = (function () {
         completeHelp: 'Here\'s some things you can say,'
         + ' add article jeans.'
         + ' set 10 as minimum temperature for jeans.'
-        //+ ' tell me the score.'
+        + ' set 70 as maximum temperature for jeans.'
+        + ' what should I wear today?'
+        + ' should I wear green?'
         //+ ' new game.'
         //+ ' reset.'
         + ' and exit.',

@@ -10,7 +10,67 @@
 
 'use strict';
 var textHelper = require('./textHelper'),
-    storage = require('./storage');
+    storage = require('./storage'),
+    https = require('https');
+
+/**
+ * Variable defining the length of the delimiter between events
+ */
+var delimiterSize = 2;
+
+function parseJson(inputText) {
+    // sizeOf (/nEvents/n) is 10
+    var text = inputText.substring(inputText.indexOf("\\nEvents\\n")+10, inputText.indexOf("\\n\\n\\nBirths")),
+        retArr = [],
+        retString = "",
+        endIndex,
+        startIndex = 0;
+
+    if (text.length == 0) {
+        return retArr;
+    }
+
+    while(true) {
+        endIndex = text.indexOf("\\n", startIndex+delimiterSize);
+        var eventText = (endIndex == -1 ? text.substring(startIndex) : text.substring(startIndex, endIndex));
+        // replace dashes returned in text from Wikipedia's API
+        eventText = eventText.replace(/\\u2013\s*/g, '');
+        // add comma after year so Alexa pauses before continuing with the sentence
+        eventText = eventText.replace(/(^\d+)/,'$1,');
+        eventText = 'In ' + eventText;
+        startIndex = endIndex+delimiterSize;
+        retArr.push(eventText);
+        if (endIndex == -1) {
+            break;
+        }
+    }
+    if (retString != "") {
+        retArr.push(retString);
+    }
+    retArr.reverse();
+    return retArr;
+}
+
+function getJsonEvents(eventCallback) {
+    var url = "https://api.forecast.io/forecast/1f9956ae5f61d24b00d29d7755f2373d/42.7285,-84.4822";
+
+    https.get(url, function(res) {
+        var body = '';
+
+        res.on('data', function (chunk) {
+            body += chunk;
+        });
+
+        res.on('end', function () {
+            var stringResult = JSON.parse(body);
+            console.log('---------------------PRINTING--------------');
+            console.log(stringResult.currently);
+            eventCallback(stringResult);
+        });
+    }).on('error', function (e) {
+        console.log("Got error: ", e);
+    });
+}
 
 var registerIntentHandlers = function (intentHandlers, skillContext) {
 
@@ -23,7 +83,7 @@ var registerIntentHandlers = function (intentHandlers, skillContext) {
                 return;
             }
             currentGame.data.players.forEach(function (player) {
-                currentGame.data.scores[player] = 0;
+                currentGame.data.scores[player] = -20;
                 currentGame.data.max[player] = 150;
             });
             currentGame.save(function () {
@@ -73,7 +133,7 @@ var registerIntentHandlers = function (intentHandlers, skillContext) {
             currentGame.data.max[newPlayerName] = 150;
             if (skillContext.needMoreHelp) {
                 if (currentGame.data.players.length == 1) {
-                    speechOutput += 'You can say, I am Done Adding clothes. Now what\'s your next article of clothing?';
+                    speechOutput += 'You can say, "stop" to complete your wardrobe. Now what\'s your next article of clothing?';
                     reprompt = textHelper.nextHelp;
                 } else {
                     speechOutput += 'What is your next article of clothing?';
@@ -94,22 +154,17 @@ var registerIntentHandlers = function (intentHandlers, skillContext) {
     intentHandlers.AddScoreIntent = function (intent, session, response) {
         //give a player points, ask additional question if slot values are missing.
         var playerName = textHelper.getPlayerName(intent.slots.PlayerName.value),
-            score,
-            scoreValue;
-            
-        // if(isNaN(intent.slots.ScoreNumber.value)){
-        //     score = intent.slots.negScoreNumber;
-        // }
-        // else if(intent.slots.negScoreNumber!=null){
-        //     score = intent.slots.negScoreNumber;
-        // }
-
-
+            score = intent.slots.ScoreNumber,
+            negscore = intent.slots.negScoreNumber,
+            scoreValue = parseInt(score.value),
+            negscoreValue = parseInt(negscore.value);
+        if (!isNaN(negscoreValue)){
+            scoreValue = 0-negscoreValue;
+        }
         if (!playerName) {
-            response.ask('sorry, I did not hear the clothing name, please say that again', 'Please say the clothing name again');
+            response.ask('sorry, I did not hear the clothing name, please say that again', 'Please add the article again.');
             return;
         }
-        scoreValue = parseInt(score.value);
         if (isNaN(scoreValue)) {
             console.log('Invalid minimum temperature value = ' + score.value);
             response.ask('sorry, I did not hear the temperature, please say that again', 'please say the minimum temperature again');
@@ -146,12 +201,16 @@ var registerIntentHandlers = function (intentHandlers, skillContext) {
         //give a player points, ask additional question if slot values are missing.
         var playerName = textHelper.getPlayerName(intent.slots.PlayerName.value),
             max = intent.slots.MaxNumber,
-            maxValue;
+            negmax = intent.slots.negMaxNumber,
+            maxValue = parseInt(max.value),
+            negmaxValue = parseInt(negmax.value);
+        if (!isNaN(negmaxValue)){
+            maxValue = 0-negmaxValue;
+        }
         if (!playerName) {
             response.ask('sorry, I did not hear the clothing name, please say that again', 'Please say the clothing name again');
             return;
         }
-        maxValue = parseInt(max.value);
         if (isNaN(maxValue)) {
             console.log('Invalid maximum temperature value = ' + max.value);
             response.ask('sorry, I did not hear the temperature, please say that again', 'please say the maximum temperature again');
@@ -183,105 +242,80 @@ var registerIntentHandlers = function (intentHandlers, skillContext) {
         });
     };
 
-    //FILLED WITH TellScoresIntent 
+    //done editing
     intentHandlers.TellOutfitIntent = function (intent, session, response) {
         storage.loadGame(session, function (currentGame) {
             var QArticles = [],
                 continueSession,
                 speechOutput = '',
                 outfit = '',
-                _actualTemp = 63;
-            if (currentGame.data.players.length === 0) {
-                response.tell('There are no articles of clothing in your Wardrobe');
-                return;
-            }
-            /*
-            currentGame.data.players.forEach(function (player) {
-                sortedPlayerScores.push({
-                    scoremax: currentGame.data.max[player],
-                    score: currentGame.data.scores[player],
-                    player: player
+                _actualTemp,
+                _precipProb,
+                _cloudCover;
+
+            getJsonEvents( function (events) {
+                if (currentGame.data.players.length === 0) {
+                    response.tell('There are no articles of clothing in your Wardrobe');
+                    return;
+                }
+
+                _actualTemp = events.currently.temperature;
+                _precipProb = events.daily.data[0].precipProbability;
+                _cloudCover = events.daily.data[0].cloudCover;
+
+                currentGame.data.players.forEach(function (article, index) {
+                    if (currentGame.data.scores[article]<=_actualTemp && currentGame.data.max[article]>=_actualTemp){
+                        QArticles.push(article);
+                        //console.log(article);
+                    }
+                    else{
+                        //console.log('false');
+                    }
                 });
-            });
-            sortedPlayerScores.sort(function (p1, p2) {
-                return p2.score - p1.score;
-            });
-*/
 
-            currentGame.data.players.forEach(function (article, index) {
-                if (currentGame.data.scores[article]<=_actualTemp && currentGame.data.max[article]>=_actualTemp){
-                    QArticles.push(article);
-                    //console.log(article);
+                var rand_i = Math.floor(Math.random() * QArticles.length);
+
+                console.log(rand_i);
+
+                var _art = QArticles[rand_i];
+                var _min = currentGame.data.scores[_art];
+                var _max = currentGame.data.max[_art];
+
+                speechOutput += 'You should probably wear '
+                if (_art != 'pants' || _art != 'shorts' || _art != 'underwear'){
+                    speechOutput += 'a ';
                 }
-                else{
-                    //console.log('false');
+                speechOutput += _art + ' because the temperature is ' + _actualTemp;
+                outfit = 'Wear: ' + _art + '\n Current Temp: ' + _actualTemp + ' deg F \n';
+
+                if (_art == 'cardigan'){
+                    speechOutput+=' and it\'s in style!';
                 }
-            });
+                if (_precipProb>.5){
+                    speechOutput += ' ; There\'s a high chance of rain. You may want to bring an umbrella.';
+                    outfit += '\n Chance of Rain: '+_precipProb+' -Bring umbrella';
+                }
+                if (_cloudCover<.2){
+                    speechOutput += 'Clear skies! Wear sunglasses!';
+                    outfit += '\n Cloud Cover: '+_cloudCover+' -Take sunglasses';
+                }
 
-            var rand_i = Math.floor(Math.random() * QArticles.length);
-
-            var _art = QArticles[rand_i];
-            var _min = currentGame.data.scores[_art];
-            var _max = currentGame.data.max[_art];
-
-            speechOutput += 'You should probably wear ' + _art + ' because the temperature is between ';
-            speechOutput += _min + ' and ' + _max;
-
-            outfit = _art + '\n' + _actualTemp;
-         
-            response.tellWithCard(speechOutput, "WEAR THIS!", outfit);
+                response.tellWithCard(speechOutput, 'WEAR THIS!', outfit);
+            });           
         });
     };
 
-    intentHandlers.TellScoresIntent = function (intent, session, response) {
-        //tells the scores in the leaderboard and send the result in card.
+    intentHandlers.GoGreen = function (intent, session, response) {
         storage.loadGame(session, function (currentGame) {
-            var sortedPlayerScores = [],
-                continueSession,
-                speechOutput = '',
-                leaderboard = '';
-            if (currentGame.data.players.length === 0) {
-                response.tell('Nobody has joined the game.');
-                return;
-            }
-            currentGame.data.players.forEach(function (player) {
-                sortedPlayerScores.push({
-                    score: currentGame.data.scores[player],
-                    player: player
-                });
-            });
-            sortedPlayerScores.sort(function (p1, p2) {
-                return p2.score - p1.score;
-            });
 
-            var _len = currentGame.data.players.length;
-
-            console.log("---------------- PRINTING --------------\n");
-            console.log(currentGame.data.players[Math.floor(Math.random() * _len)]);
-            console.log("---------------- Done PRINTING --------------\n");
-
-            sortedPlayerScores.forEach(function (playerScore, index) {
-                if (index === 0) {
-                    speechOutput += playerScore.player + ' has ' + playerScore.score + 'point';
-                    if (playerScore.score != 1) {
-                        speechOutput += 's';
-                    }
-                } else if (index === sortedPlayerScores.length - 1) {
-                    speechOutput += 'And ' + playerScore.player + ' has ' + playerScore.score;
-                } else {
-                    speechOutput += playerScore.player + ', ' + playerScore.score;
-                }
-                speechOutput += '. ';
-                leaderboard += 'No.' + (index + 1) + ' - ' + playerScore.player + ' : ' + playerScore.score + '\n';
-            });
-            response.tellWithCard(speechOutput, "Leaderboard", leaderboard);
+            response.tell('Its always a good idea to rep the M.S.U. Spartans. Go Green!');
         });
     };
 
     intentHandlers.ResetPlayersIntent = function (intent, session, response) {
         //remove all players
         storage.newGame(session).save(function () {
-            response.ask('New game started without players, who do you want to add first?', 'Who do you want to add first?');
+            response.ask('New Wardrobe, what articles of clothing do you want to add first?', 'What do you want to add first?');
         });
     };
 
